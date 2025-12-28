@@ -1,251 +1,417 @@
-Tableau → Power BI Semantic Compiler
+# Tableau → Power BI Semantic Compiler
 
-A research-oriented semantic compilation pipeline that transforms Tableau analytical semantics into a Power BI–compatible Tabular Object Model (TOM).
+A research-grade semantic compilation pipeline for transforming Tableau analytical semantics into Power BI Tabular Object Model (TOM) with full traceability and engine-aware translation.
 
-This project does not perform visual migration or file-level conversion.
-Instead, it treats Tableau and Power BI as analytical execution engines, not UI or reporting tools.
+## Overview
 
-Project Objective
+This project implements a **semantic compiler** that translates Tableau workbooks into Power BI semantic models by preserving analytical intent rather than visual layout. Unlike traditional migration tools that focus on dashboard recreation, this compiler treats both platforms as analytical execution engines and ensures **engine-safe, explainable, and auditable** transformations.
 
-The objective of this project is to design and implement an engine-safe, explainable, and auditable semantic compiler that:
+### What This Project Is
 
-Extracts Tableau semantics using official and documented APIs only
+- **Semantic Analysis & Compilation**: Canonical intermediate representation bridging Tableau and Power BI
+- **Engine-Aware Translation**: Respects differences between Tableau's query engine and Power BI's VertiPaq/DAX
+- **Data-Driven Validation**: Uses actual data patterns instead of metadata assumptions
+- **Research-Grade Pipeline**: Deterministic, explainable, and fully documented transformations
 
-Preserves analytical intent and meaning, not visual layout
+### What This Project Is Not
 
-Avoids heuristic-based or speculative conversion of joins, measures, or logic
+- ❌ Visual migration tool (dashboards, formatting, layouts)
+- ❌ File-level converter (.twbx → .pbix)
+- ❌ Heuristic-based "best guess" translator
+- ❌ Silent converter that drops unsupported features
 
-Produces a valid and executable Power BI Tabular Object Model (TOM)
+---
 
-Explicitly reports unsupported, unsafe, or ambiguous conversions
+## Project Objectives
 
-What This Project Is
+The compiler is designed to:
 
-Semantic analysis and semantic compilation
+1. **Extract Tableau semantics** using official and documented APIs only
+2. **Preserve analytical intent** across different execution engines
+3. **Avoid speculative conversion** of joins, measures, or business logic
+4. **Produce valid Power BI TOM** compatible with Tabular Editor and Power BI Desktop
+5. **Explicitly report** unsupported, unsafe, or ambiguous conversions
 
-Tableau → canonical intermediate representation → Power BI TOM
+---
 
-Engine-aware translation (Tableau vs VertiPaq / DAX)
+## Architecture
 
-Data-driven validation instead of metadata assumptions
+The pipeline consists of 11 deterministic stages, each producing auditable intermediate outputs:
 
-Research-grade, deterministic, and explainable pipeline
+```
+.twbx Archive
+    ↓
+[1] Tableau XML Parsing
+    ↓
+[2] Hyper Extract Access
+    ↓
+[3] Logical-Physical Mapping
+    ↓
+[4] Canonical Semantic Model
+    ↓
+[5] Calculation Classification
+    ↓
+[6] Safe DAX Rewriting
+    ↓
+[7] Relationship Extraction
+    ↓
+[8] Data-Driven Inference
+    ↓
+[9] Table Context Resolution
+    ↓
+[10] Power BI Semantic Model
+    ↓
+[11] TOM Export
+    ↓
+.bim / Power BI TOM
+```
 
-Implemented Pipeline Stages
-1. Tableau Parsing (XML Only)
+---
 
-Parses .twb files extracted from .twbx archives
+## Pipeline Stages
 
-Extracts semantic metadata including:
+### Stage 1: Tableau XML Parsing
 
-Datasources
+**Purpose**: Extract semantic metadata from Tableau workbooks
 
-Fields (dimensions and measures)
+**Input**: `.twb` files (extracted from `.twbx` archives)
 
-Calculated fields
+**Output**: `data/parsed_*.json`
 
-Parameters
+**Extracts**:
+- Datasources and connections
+- Dimensions and measures
+- Calculated fields and parameters
+- Filters and field-to-worksheet mappings
 
-Filters
+**Implementation**: `parsing_tableau.py`
 
-Field-to-worksheet usage
+**Guarantees**: Uses only documented Tableau XML structures—no reverse engineering
 
-Uses only documented Tableau XML structures
+---
 
-No reverse engineering or undocumented attributes
+### Stage 2: Hyper Extract Access
 
-Files
+**Purpose**: Access Tableau's proprietary data storage using official APIs
 
-parsing_tableau.py
+**Input**: `.hyper` files from `.twbx` archives
 
-Outputs: data/parsed_*.json
+**Output**: 
+- `parsed_hyper_schema.json` (table schemas, column types)
+- `hyper_raw_data.csv` (sampled data for validation)
 
-2. Hyper Extract Access (Official API)
+**API**: Tableau Hyper API (official, supported)
 
-Uses the Tableau Hyper API exclusively
+**Usage**: Validation and data-driven inference only—not for bulk data migration
 
-Extracts:
+---
 
-Table schemas
+### Stage 3: Logical-Physical Mapping
 
-Column-level data types
+**Purpose**: Map Tableau's logical field identifiers to Hyper physical columns
 
-Row-level data (used strictly for validation and inference)
+**Input**: Parsed Tableau metadata + Hyper schema
 
-Files
+**Output**: `logical_physical_mapping.json`
 
-parsed_hyper_schema.json
+**Guarantees**:
+- Deterministic one-to-one mapping
+- No duplicate or ambiguous ownership
+- No inferred aliases or heuristic matching
 
-hyper_raw_data.csv
+---
 
-3. Logical → Physical Field Mapping
+### Stage 4: Canonical Semantic Model
 
-Maps Tableau logical field identifiers to Hyper physical columns
+**Purpose**: Construct a tool-agnostic intermediate representation (IR)
 
-Ensures:
+**Output**: `canonical_powerbi_model.json`
 
-Deterministic mapping
+**Components**:
+- **Tables**: Physical data containers
+- **Columns**: Typed fields with lineage
+- **Measures**: Analytical expressions
+- **Relationships**: Foreign key constraints
 
-No duplicate or ambiguous ownership
+**Role**: Decouples Tableau semantics from Power BI syntax, enabling independent validation and transformation
 
-No inferred aliases or heuristic matching
+---
 
-File
+### Stage 5: Calculation Classification
 
-logical_physical_mapping.json
+**Purpose**: Analyze and categorize Tableau calculated fields by convertibility
 
-4. Canonical Semantic Model
+**Output**: `calculation_classification.json`
 
-Constructs a tool-agnostic semantic intermediate representation
+**Categories**:
+- ✅ **Directly Convertible**: Simple aggregations, arithmetic expressions
+- ⚠️ **Requires Redesign**: Complex logic needing DAX-specific patterns
+- ❌ **Unsupported**: LOD expressions, table calculations, window functions
 
-Explicitly separates:
+**Policy**: No silent drops—all skipped measures are documented with justification
 
-Tables
+**Implementation**: `calculation_classification.py`
 
-Columns
+---
 
-Measures
+### Stage 6: Safe DAX Rewriting
 
-Relationships
+**Purpose**: Convert only engine-safe Tableau expressions to DAX
 
-Acts as a compiler IR, decoupled from both Tableau and Power BI
+**Output**: `converted_dax_measures.json`
 
-File
+**Converts**:
+- Simple aggregations (`SUM`, `AVG`, `COUNT`, etc.)
+- Algebraic combinations of aggregations
+- Basic conditional logic
 
-canonical_powerbi_model.json
+**Explicitly Skips**:
+- Level of Detail (LOD) expressions
+- Table calculations (`RUNNING_SUM`, `INDEX`, etc.)
+- Window functions (`WINDOW_AVG`, `LOOKUP`, etc.)
 
-5. Calculation Classification
+**Implementation**: `rewrite_convertible_calculations.py`
 
-Analyzes Tableau calculated fields and classifies them into:
+---
 
-Directly convertible semantic logic
+### Stage 7: Relationship Extraction
 
-Logic requiring manual redesign
+**Purpose**: Detect Tableau's data modeling strategy
 
-Unsupported logic (visual, table calculations, LOD expressions)
+**Output**: `relationships_from_twb.json`
 
-No silent drops or implicit rewrites
+**Detects**:
+- **Logical Relationships**: Tableau's modern relationship model
+- **Physical Joins**: Legacy join-based data sources
 
-File
+**Policy**: Does not infer or guess join keys—preserves ambiguity when Tableau defers resolution to query time
 
-calculation_classification.json
+**Implementation**: `extract_relationships_from_twb.py`
 
-6. Measure Rewriting (Safe DAX Only)
+---
 
-Converts only engine-safe expressions, including:
+### Stage 8: Data-Driven Relationship Inference
 
-Simple aggregations
+**Purpose**: Infer foreign key relationships using actual data patterns
 
-Algebraic combinations of aggregations
+**Output**: `inferred_powerbi_relationships.json`
 
-Explicitly skips:
+**Methods**:
+- **Primary Key Detection**: Uniqueness and non-nullability analysis
+- **Foreign Key Detection**: Referential integrity validation
+- **Confidence Scoring**: Coverage-based relationship strength
 
-LOD expressions
+**Guarantees**: Relationships emitted only when confidence thresholds are met
 
-Table calculations
+---
 
-WINDOW / LOOKUP logic
+### Stage 9: Table Context Resolution
 
-Skipped measures are retained with justification
+**Purpose**: Resolve measure ownership for valid DAX placement
 
-Files
+**Output**: `semantic_model_with_context.json`
 
-rewrite_convertible_calculations.py
+**Required For**:
+- Valid DAX measure definitions
+- Power BI engine execution
+- Prevention of ambiguous or floating measures
 
-converted_dax_measures.json
+---
 
-7. Relationship Handling (Engine-Aware)
+### Stage 10: Final Power BI Semantic Model
 
-Detects Tableau modeling strategy:
+**Purpose**: Merge all semantic components into unified model
 
-Logical relationships
+**Output**: `final_powerbi_semantic_model.json`
 
-Physical joins
+**Includes**:
+- Canonical semantic model
+- Converted DAX measures
+- Validated relationships
+- Full conversion report with audit trail
 
-Does not infer or guess join keys
+---
 
-Preserves ambiguity where Tableau defers join resolution to query time
+### Stage 11: Tabular Object Model (TOM) Export
 
-Files
+**Purpose**: Generate Power BI-compatible model definition
 
-extract_relationships_from_twb.py
+**Output**: `powerbi_tom_model.json`
 
-relationships_from_twb.json
+**Compatible With**:
+- Tabular Editor 2/3
+- Power BI Desktop (import mode)
+- Azure Analysis Services
 
-8. Data-Driven Relationship Inference
+**Features**:
+- Standards-compliant TOM JSON
+- Annotations documenting conversion decisions
+- Preserved metadata for unsupported features
 
-Uses actual data from Hyper extracts
+---
 
-Performs:
+## Core Design Principles
 
-Primary key detection
+| Principle | Description |
+|-----------|-------------|
+| **Engine Correctness > Visual Parity** | Prioritizes executable semantics over UI recreation |
+| **Explicit Uncertainty > Silent Failure** | Reports ambiguities rather than making assumptions |
+| **Data-Driven Validation > Metadata Trust** | Validates using actual data patterns |
+| **Semantic Intent > Syntactic Conversion** | Preserves analytical meaning across different syntaxes |
+| **Official APIs Only** | No reverse engineering or undocumented features |
 
-Foreign key detection
+---
 
-Coverage-based confidence scoring
+## Installation
 
-Emits relationships only when confidence thresholds are met
+### Prerequisites
 
-File
+- Python 3.8+
+- Tableau Hyper API
+- Access to Tableau `.twbx` or `.twb` files
 
-inferred_powerbi_relationships.json
+### Setup
 
-9. Table Context Resolution
+```bash
+# Clone the repository
+git clone https://github.com/your-org/tableau-powerbi-compiler.git
+cd tableau-powerbi-compiler
 
-Resolves measure-to-table ownership
+# Install dependencies
+pip install tableauhyperapi
+pip install -r requirements.txt
 
-Required for:
+# Extract .twbx archive
+unzip your_workbook.twbx -d extracted/
+```
 
-Valid DAX placement
+---
 
-Power BI engine execution
+## Usage
 
-Prevents ambiguous or floating measures
+### Basic Workflow
 
-File
+```bash
+# 1. Parse Tableau workbook
+python parsing_tableau.py extracted/workbook.twb
 
-semantic_model_with_context.json
+# 2. Extract Hyper data
+python extract_hyper.py extracted/Data/Extracts/extract.hyper
 
-10. Final Power BI Semantic Model
+# 3. Run full compilation pipeline
+python run_pipeline.py extracted/
 
-Merges:
+# 4. Output generated at:
+# - final_powerbi_semantic_model.json
+# - powerbi_tom_model.json
+```
 
-Canonical semantic model
+### Import into Power BI
 
-Converted DAX measures
+```bash
+# Option 1: Use Tabular Editor
+# Open powerbi_tom_model.json in Tabular Editor
 
-Relationship evidence
+# Option 2: Use Power BI Desktop
+# File → Import → Import from Analysis Services
+```
 
-Attaches a full conversion report for auditability
+---
 
-File
+## Output Files
 
-final_powerbi_semantic_model.json
+| File | Description |
+|------|-------------|
+| `parsed_*.json` | Raw Tableau metadata extraction |
+| `logical_physical_mapping.json` | Field identifier resolution |
+| `canonical_powerbi_model.json` | Tool-agnostic semantic IR |
+| `calculation_classification.json` | Measure convertibility analysis |
+| `converted_dax_measures.json` | Successfully translated DAX |
+| `relationships_from_twb.json` | Extracted relationship metadata |
+| `inferred_powerbi_relationships.json` | Data-driven relationship evidence |
+| `semantic_model_with_context.json` | Context-resolved semantic model |
+| `final_powerbi_semantic_model.json` | Complete Power BI model with audit trail |
+| `powerbi_tom_model.json` | Power BI TOM export |
 
-11. Power BI Tabular Object Model Export
+---
 
-Generates a valid Power BI Tabular Object Model
+## Known Limitations
 
-Compatible with:
+### Tableau Features Not Supported
 
-Tabular Editor
+- **Level of Detail (LOD) Expressions**: Require manual DAX redesign
+- **Table Calculations**: Context-dependent logic incompatible with DAX
+- **Window Functions**: No direct DAX equivalent
+- **Custom SQL**: Cannot be translated without database access
+- **Blended Data Sources**: Multi-source queries need redesign
 
-Power BI Desktop (import mode)
+### Power BI Constraints
 
-Includes annotations documenting skipped or unsupported logic
+- **DirectQuery Limitations**: Some DAX patterns only work in Import mode
+- **Relationship Cardinality**: Must be explicitly defined (no Tableau-style deferred joins)
+- **Calculation Groups**: Advanced time intelligence may need manual implementation
 
-File
+---
 
-powerbi_tom_model.json
+## Conversion Report
 
-Key Design Principles
+Each compilation produces a detailed audit trail:
 
-Engine correctness > visual parity
+```json
+{
+  "total_measures": 45,
+  "converted_measures": 32,
+  "skipped_measures": 13,
+  "skipped_reasons": {
+    "LOD_expression": 8,
+    "table_calculation": 3,
+    "window_function": 2
+  },
+  "relationships_inferred": 12,
+  "relationships_confidence_low": 2
+}
+```
 
-Explicit uncertainty > silent failure
+---
 
-Data-driven validation > metadata assumptions
+## Contributing
 
-Semantic intent > syntactic conversion
+This is a research-oriented project. Contributions should:
 
-Official APIs only
+1. Maintain deterministic behavior
+2. Use only official APIs
+3. Include comprehensive documentation
+4. Provide test cases with sample workbooks
+
+---
+
+## License
+
+[Specify your license]
+
+---
+
+## Acknowledgments
+
+- Tableau Hyper API documentation
+- Power BI Tabular Object Model (TOM) specification
+- DAX language reference
+
+---
+
+## Support
+
+For issues, questions, or feature requests, please open a GitHub issue with:
+- Sample Tableau workbook (anonymized if needed)
+- Expected behavior
+- Actual output and conversion report
+
+---
+
+## Roadmap
+
+- [ ] Advanced DAX pattern library for complex Tableau calculations
+- [ ] Incremental refresh configuration mapping
+- [ ] Row-level security (RLS) translation
+- [ ] Tableau extract → Power BI dataset automation
+- [ ] Validation suite with reference workbooks
