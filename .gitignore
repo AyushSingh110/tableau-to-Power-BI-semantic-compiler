@@ -1,0 +1,4 @@
+hyperd.log
+__pycache__/
+*.pbix
+twbx_extracted/
