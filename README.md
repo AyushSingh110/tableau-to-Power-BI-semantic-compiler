@@ -15,10 +15,10 @@ This project implements a **semantic compiler** that translates Tableau workbook
 
 ### What This Project Is Not
 
-- ❌ Visual migration tool (dashboards, formatting, layouts)
-- ❌ File-level converter (.twbx → .pbix)
-- ❌ Heuristic-based "best guess" translator
-- ❌ Silent converter that drops unsupported features
+-  Visual migration tool (dashboards, formatting, layouts)
+-  File-level converter (.twbx → .pbix)
+-  Heuristic-based "best guess" translator
+-  Silent converter that drops unsupported features
 
 ---
 
